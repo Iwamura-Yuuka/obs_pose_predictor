@@ -60,6 +60,14 @@ Visualization Manager:
         "": true
       Queue Size: 25
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /predicted_data
+      Name: MarkerArray
+      Namespaces:
+        "": true
+      Queue Size: 100
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 255; 255; 255

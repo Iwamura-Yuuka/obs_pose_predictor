@@ -2,6 +2,21 @@
 hz: 10  # ループ周波数 [Hz]
 
 # 予測モード
-mode: 0  # 等速モデル
+# mode: 0  # 等速モデル
 # mode: 1  # 加速度を考慮
-# mode: 2  # ジャークを考慮
+mode: 2  # ジャークを考慮
+
+# デバック用の情報を可視化するかの設定用
+# trueなら可視化
+visualize_observed_obs_poses: true   # 障害物の観測位置
+visualize_predicted_obs_poses: true  # 障害物の予測位置
+
+# frame_id
+sim_frame: "odom"  # シミュレーター
+
+# 予測時間 [s]
+horizon: 1.0         # 予測ホライズン [s]
+dt: 0.1              # 微小時間 [s]
+j_rate: 0.5          # ジャークの減速比率
+max_vel: 1.5         # 障害物の最高速度
+inc_tolerance_: 0.8  #最高速度に対する増加許容範囲

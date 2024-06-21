@@ -4,12 +4,17 @@ SBSPredictor::SBSPredictor():private_nh_("~")
 {
   // param
   private_nh_.param("hz", hz_, {10});
-  private_nh_.param("mode", mode_,{0});
-//   private_nh_.param("visualize_current_people_poses", visualize_current_people_poses_, {false});
-//   private_nh_.param("visualize_selected_current_people_poses", visualize_selected_current_people_poses_, {false});
+  private_nh_.param("mode", mode_, {0});
+  private_nh_.param("visualize_observed_obs_poses", visualize_observed_obs_poses_, {false});
+  private_nh_.param("visualize_predicted_obs_poses", visualize_predicted_obs_poses_, {false});
+  private_nh_.param("sim_frame", sim_frame_, {"odom"});
+  private_nh_.param("horizon", horizon_, {3.0});
+  private_nh_.param("dt", dt_, {0.1});
+  private_nh_.param("j_rate", j_rate_, {0.5});
+  private_nh_.param("max_vel", max_vel_, {1.5});
+  private_nh_.param("inc_tolerance", inc_tolerance_, {0.8});
 //   private_nh_.param("visualize_future_people_poses", visualize_future_people_poses_, {false});
 //   private_nh_.param("flag_prediction", flag_prediction_, {true});
-  private_nh_.param("sim_frame", sim_frame_, {"odom"});
 //   private_nh_.param("robot_frame", robot_frame_, {"odom"});
 //   private_nh_.param("people_frame", people_frame_, {"base_footprint"});
 //   private_nh_.param("consider_dist_border", consider_dist_border_, {8.0});
@@ -24,6 +29,7 @@ SBSPredictor::SBSPredictor():private_nh_("~")
 
   // debug
   pub_observed_data_ = nh_.advertise<visualization_msgs::MarkerArray>("/observed_data", 1);
+  pub_predicted_data_ = nh_.advertise<visualization_msgs::MarkerArray>("/predicted_data", 1);
 
 }
 
@@ -95,6 +101,167 @@ void SBSPredictor::get_obs_data()
   }
 }
 
+// 観測データから障害物の速度を計算（加速度・ジャークも計算可能）
+std::vector<Coordinate> SBSPredictor::calc_speed(const std::vector<Coordinate>& positions)
+{
+  std::vector<Coordinate> speeds;
+  int size = positions.size();
+
+  for(int i=1; i<size; i++)
+  {
+    Coordinate speed;
+    speed.x = (positions[i].x - positions[i-1].x) / dt_;
+    speed.y = (positions[i].y - positions[i-1].y) / dt_;
+    speeds.push_back(speed);
+  }
+
+  return speeds;
+}
+
+// 将来時刻におけるジャークを計算
+// Coordinate SBSPredictor::predict_jerk(const tmp_a, )
+
+// 障害物の移動先の座標を計算
+Coordinate SBSPredictor::calc_position(const Coordinate current_position, const Coordinate v, const Coordinate a, const Coordinate j, const double dt)
+{
+  Coordinate predict_position;
+
+  predict_position.x = current_position.x + v.x*dt + a.x*dt*dt + j.x*dt*dt*dt;
+  predict_position.y = current_position.y + v.y*dt + a.y*dt*dt + j.y*dt*dt*dt;
+
+  return predict_position;
+}
+
+// 障害物の移動後の速度を計算
+Coordinate SBSPredictor::calc_velocity(const Coordinate v, const Coordinate a, const Coordinate j, const double dt)
+{
+  Coordinate predict_vel;
+
+  predict_vel.x = v.x + a.x*dt + j.x*dt*dt;
+  predict_vel.y = v.y + a.y*dt + j.y*dt*dt;
+
+  return predict_vel;
+}
+
+// 方位を計算
+double SBSPredictor::calc_direction(const Coordinate vel)
+{
+  const double theta = atan2(vel.y, vel.x);
+
+  return normalize_angle(theta);
+}
+
+// 適切な角度(-M_PI ~ M_PI)を返す
+double SBSPredictor::normalize_angle(double theta)
+{
+  if(theta > M_PI)
+    theta -= 2.0 * M_PI;
+  if(theta < -M_PI)
+    theta += 2.0 * M_PI;
+
+  return theta;
+}
+
+// 移動予測
+void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& predict_poses, std::vector< std::vector<State> >& predict_states)
+{
+  // 予測ステップ数を計算
+  int predict_step = horizon_ / dt_;
+
+    for(int i=0; i<=max_id_; i++)
+    {
+      // 1つの障害物に関するデータのみ格納
+      std::vector<Coordinate> positions;
+      for(int j=0; j<mode_+2; j++)
+      {
+        positions.push_back(obs_data_[i][j]);
+      }
+
+      // 速度を計算（mode0 ~ mode2共通）
+      std::vector<Coordinate> v_list = calc_speed(positions);
+      // 現在の速度を取得
+      // back()を使用してvectorの末尾要素を取得
+      Coordinate v = v_list.back();
+
+      // 加速度を計算（mode1とmode2）
+      std::vector<Coordinate> a_list;
+      Coordinate a;
+      if(mode_ >= 1)
+      {
+        a_list = calc_speed(v_list);
+        // 現在の加速度を取得
+        // a = a_list.back();
+        a.x = a_list.back().x * dt_;
+        a.y = a_list.back().y * dt_;
+      }
+      else
+      {
+        a.x = 0.0;
+        a.y = 0.0;
+      }
+
+      // ジャークを計算（mode2のみ）
+      std::vector<Coordinate> j_list;
+      Coordinate j;
+      if(mode_ >= 2)
+      {
+        j_list = calc_speed(a_list);
+        // 現在のジャークを取得
+        // j = j_list.back();
+        j.x = j_list.back().x * dt_;
+        j.y = j_list.back().y * dt_;
+      }
+      else
+      {
+        j.x = 0.0;
+        j.y = 0.0;
+      }
+
+      ROS_INFO_STREAM("v : " << hypot(v.x, v.y));
+      ROS_INFO_STREAM("a : " << hypot(a.x, v.y));
+      ROS_INFO_STREAM("j : " << hypot(j.x, j.y));
+
+      // 姿勢・速度予測
+      std::vector<Coordinate> predict_positions;
+      std::vector<State> predict_one_states;
+
+      // 最高速度を増加許容範囲に基づき計算
+      double max_speed = hypot(v.x, v.y);
+      
+      if(hypot(v.x, v.y) < max_vel_)
+      {
+        max_speed = hypot(v.x, v.y) + (inc_tolerance_ * (max_vel_ - hypot(v.x,v.y)));
+      }
+
+      ROS_INFO_STREAM("id : " << i);
+      for(int k=1; k<=predict_step; k++)
+      {
+        // 予測時間を計算
+        double dt = dt_ * k;
+        ROS_INFO_STREAM("dt : " << dt);
+
+        // 移動先の座標を計算
+        Coordinate predict_position = calc_position(obs_data_[i].back(), v, a, j, dt);
+        predict_positions.push_back(predict_position);
+
+        // 移動後の速度を計算
+        Coordinate predict_vel = calc_velocity(v, a, j, dt);
+        
+        // 予測データを格納
+        State predict_one_state;
+        predict_one_state.x = predict_position.x;
+        predict_one_state.y = predict_position.y;
+        predict_one_state.vel = hypot(predict_vel.x, predict_vel.y);
+        predict_one_state.yaw = calc_direction(predict_vel);
+        predict_one_states.push_back(predict_one_state);
+        ROS_INFO_STREAM("vel : " << predict_one_state.vel);
+      }
+
+      predict_poses.push_back(predict_positions);
+      predict_states.push_back(predict_one_states);
+    }
+}
+
 // 障害物の位置情報を可視化
 // visualization_msgs::MarkerArrayを使用
 void SBSPredictor::visualize_obs_pose(const std::vector< std::vector<Coordinate> > obs_poses, const ros::Publisher& pub_obs_pose, ros::Time now)
@@ -107,47 +274,6 @@ void SBSPredictor::visualize_obs_pose(const std::vector< std::vector<Coordinate>
   // 配列サイズを表示
   ROS_INFO_STREAM("row : " << row);
   ROS_INFO_STREAM("column : " << column);
-
-//   for(int i=0; i<row; i++)
-//   {
-//     visualization_msgs::MarkerArray obs_pose_lists;
-    
-//     for(int j=0; j<column; j++)
-//     {
-//       visualization_msgs::Marker obs_pose_list;
-
-//       obs_pose_list.header.stamp = now;
-//       obs_pose_list.header.frame_id = sim_frame_;
-//       obs_pose_list.id = i;
-//       obs_pose_list.type = visualization_msgs::Marker::SPHERE_LIST;
-//       obs_pose_list.action = visualization_msgs::Marker::ADD;
-//       obs_pose_list.lifetime = ros::Duration();
-//       obs_pose_list.scale.x = 0.25;
-//       obs_pose_list.scale.y = 0.25;
-//       obs_pose_list.scale.z = 0.25;
-//       obs_pose_list.pose.position.x = obs_poses[i][j].x;
-//       obs_pose_list.pose.position.y = obs_poses[i][j].y;
-//       obs_pose_list.color.r = 0.0;
-//       obs_pose_list.color.g = 0.5;
-//       obs_pose_list.color.b = 1.0;
-
-//       // 現在に近いほど色を濃くする
-//       if(column == mode_+2)
-//       {
-//         obs_pose_list.color.a = 0.2 + 0.8 * ((j+1) / column);  // だんだん濃くなる
-//       }
-//       else
-//       {
-//         obs_pose_list.color.a = 0.2 + 0.8 * (1 - (j/column));  // だんだん薄くなる
-//       }
-      
-//       obs_pose_lists.markers.push_back(obs_pose_list);
-//     }
-
-//     pub_obs_pose.publish(obs_pose_lists);
-//   }
-
-  // aaaaaaaaaaaaaaaaaaaaaaaaaa
 
   visualization_msgs::MarkerArray obs_pose_lists;
 
@@ -203,13 +329,28 @@ void SBSPredictor::visualize_obs_pose(const std::vector< std::vector<Coordinate>
 void SBSPredictor::update_obs_data()
 {
   ros::Time now = ros::Time::now();
+  std::vector< std::vector<Coordinate> > predicted_obs_poses;
+  std::vector< std::vector<State> > predicted_obs_states;
 
   // 障害物データを取得
   get_obs_data();
 
+  // 障害物データが必要数たまってから処理を開始
   if(is_store_obs_data_)
   {
-    visualize_obs_pose(obs_data_, pub_observed_data_, now);
+    predict_obs_states(predicted_obs_poses, predicted_obs_states);
+    
+    // 障害物の観測位置を可視化
+    if(visualize_observed_obs_poses_)
+    {
+      visualize_obs_pose(obs_data_, pub_observed_data_, now);
+    }
+
+    // 障害物の予測位置を可視化
+    if(visualize_predicted_obs_poses_)
+    {
+      visualize_obs_pose(predicted_obs_poses, pub_predicted_data_, now);
+    }
   }
 
   // ped_states_の配列のうち取得済みのデータ（配列の先頭の要素）を削除

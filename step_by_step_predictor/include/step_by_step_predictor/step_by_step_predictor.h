@@ -47,10 +47,13 @@ private:
 
   // 引数あり関数
   std::vector<Coordinate> calc_speed(const std::vector<Coordinate>& positions);                                                        // 障害物の速度を計算（加速度・ジャークも計算可能）
-  Coordinate calc_position(const Coordinate current_position, const Coordinate v, const Coordinate a, const Coordinate j, const double dt);  // 障害物の移動先の座標を計算
-  Coordinate calc_velocity(const Coordinate v, const Coordinate a, const Coordinate j, const double dt);                                     // 障害物の移動後の速度を計算
-  double calc_direction(const Coordinate vel);                                                                                               // 方位を計算
+  Coordinate calc_accel(const Coordinate tmp_a, const Coordinate j);                                                                      // 将来時刻における加速度を計算
+  Coordinate calc_velocity(const Coordinate tmp_v, const Coordinate a, const double max_speed);                                           // 将来時刻における速度を計算
+  Coordinate calc_position(const double tmp_x, const double tmp_y, const Coordinate v);                 // 障害物の移動先の座標を計算
+  // Coordinate calc_position(const Coordinate current_position, const Coordinate v, const Coordinate a, const Coordinate j, const double dt);  // 障害物の移動先の座標を計算
+  // Coordinate calc_velocity(const Coordinate v, const Coordinate a, const Coordinate j, const double dt);                                     // 障害物の移動後の速度を計算
   double normalize_angle(double theta);                                                                                                      // 適切な角度(-M_PI ~ M_PI)を返す
+  double calc_direction(const Coordinate vel);                                                                                               // 方位を計算
   void predict_obs_states(std::vector< std::vector<Coordinate> >& predict_poses, std::vector< std::vector<State> >& predict_states);         // 移動予測
   void visualize_obs_pose(const std::vector< std::vector<Coordinate> > obs_poses, const ros::Publisher& pub_obs_pose, ros::Time now);  // 障害物の位置情報を可視化
   // void get_ped_data(pedestrian_msgs::PeopleStates& current_people, ros::Time now);                                                               // 歩行者データを取得

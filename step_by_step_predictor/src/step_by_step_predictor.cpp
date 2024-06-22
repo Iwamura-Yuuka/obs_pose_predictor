@@ -118,38 +118,69 @@ std::vector<Coordinate> SBSPredictor::calc_speed(const std::vector<Coordinate>& 
   return speeds;
 }
 
-// 将来時刻におけるジャークを計算
-// Coordinate SBSPredictor::predict_jerk(const tmp_a, )
+// 将来時刻における加速度を計算
+Coordinate SBSPredictor::calc_accel(const Coordinate tmp_a, const Coordinate j)
+{
+  Coordinate predict_a;
+  // 加速し続けないようにジャークを減衰させる
+  predict_a.x = tmp_a.x + ((1 - j_rate_) * j.x * dt_);
+  predict_a.y = tmp_a.y + ((1 - j_rate_) * j.y * dt_);
+
+  return predict_a;
+}
+
+// 将来時刻における速度を計算
+Coordinate SBSPredictor::calc_velocity(const Coordinate tmp_v, const Coordinate a, const double max_speed)
+{
+  Coordinate predict_v;
+
+  predict_v.x = tmp_v.x + (a.x * dt_);
+  predict_v.y = tmp_v.y + (a.y * dt_);
+
+  // 最大速度を超えてしまった場合は調整
+  if(hypot(predict_v.x, predict_v.y) > max_speed)
+  {
+    const double dec_rate = hypot(predict_v.x, predict_v.y) / max_speed;
+
+    predict_v.x = predict_v.x / dec_rate;
+    predict_v.y = predict_v.y / dec_rate;
+  }
+
+  return predict_v;
+}
 
 // 障害物の移動先の座標を計算
-Coordinate SBSPredictor::calc_position(const Coordinate current_position, const Coordinate v, const Coordinate a, const Coordinate j, const double dt)
+Coordinate SBSPredictor::calc_position(const double tmp_x, const double tmp_y, const Coordinate v)
 {
   Coordinate predict_position;
 
-  predict_position.x = current_position.x + v.x*dt + a.x*dt*dt + j.x*dt*dt*dt;
-  predict_position.y = current_position.y + v.y*dt + a.y*dt*dt + j.y*dt*dt*dt;
+  predict_position.x = tmp_x + (v.x * dt_);
+  predict_position.y = tmp_y + (v.y * dt_);
 
   return predict_position;
 }
 
+// 障害物の移動先の座標を計算
+// Coordinate SBSPredictor::calc_position(const Coordinate current_position, const Coordinate v, const Coordinate a, const Coordinate j, const double dt)
+// {
+//   Coordinate predict_position;
+
+//   predict_position.x = current_position.x + v.x*dt + a.x*dt*dt + j.x*dt*dt*dt;
+//   predict_position.y = current_position.y + v.y*dt + a.y*dt*dt + j.y*dt*dt*dt;
+
+//   return predict_position;
+// }
+
 // 障害物の移動後の速度を計算
-Coordinate SBSPredictor::calc_velocity(const Coordinate v, const Coordinate a, const Coordinate j, const double dt)
-{
-  Coordinate predict_vel;
+// Coordinate SBSPredictor::calc_velocity(const Coordinate v, const Coordinate a, const Coordinate j, const double dt)
+// {
+//   Coordinate predict_vel;
 
-  predict_vel.x = v.x + a.x*dt + j.x*dt*dt;
-  predict_vel.y = v.y + a.y*dt + j.y*dt*dt;
+//   predict_vel.x = v.x + a.x*dt + j.x*dt*dt;
+//   predict_vel.y = v.y + a.y*dt + j.y*dt*dt;
 
-  return predict_vel;
-}
-
-// 方位を計算
-double SBSPredictor::calc_direction(const Coordinate vel)
-{
-  const double theta = atan2(vel.y, vel.x);
-
-  return normalize_angle(theta);
-}
+//   return predict_vel;
+// }
 
 // 適切な角度(-M_PI ~ M_PI)を返す
 double SBSPredictor::normalize_angle(double theta)
@@ -160,6 +191,14 @@ double SBSPredictor::normalize_angle(double theta)
     theta += 2.0 * M_PI;
 
   return theta;
+}
+
+// 方位を計算
+double SBSPredictor::calc_direction(const Coordinate vel)
+{
+  const double theta = atan2(vel.y, vel.x);
+
+  return normalize_angle(theta);
 }
 
 // 移動予測
@@ -217,13 +256,22 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
         j.y = 0.0;
       }
 
+      ROS_INFO_STREAM("id : " << i);
       ROS_INFO_STREAM("v : " << hypot(v.x, v.y));
-      ROS_INFO_STREAM("a : " << hypot(a.x, v.y));
+      ROS_INFO_STREAM("a : " << hypot(a.x, a.y));
       ROS_INFO_STREAM("j : " << hypot(j.x, j.y));
 
       // 姿勢・速度予測
       std::vector<Coordinate> predict_positions;
       std::vector<State> predict_one_states;
+      State predict_one_state;
+
+      // 現在情報を格納
+      predict_one_state.x = obs_data_[i].back().x;
+      predict_one_state.y = obs_data_[i].back().y;
+      predict_one_state.vel = hypot(v.x, v.y);
+      predict_one_state.yaw = calc_direction(v);
+      predict_one_states.push_back(predict_one_state);
 
       // 最高速度を増加許容範囲に基づき計算
       double max_speed = hypot(v.x, v.y);
@@ -233,22 +281,35 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
         max_speed = hypot(v.x, v.y) + (inc_tolerance_ * (max_vel_ - hypot(v.x,v.y)));
       }
 
-      ROS_INFO_STREAM("id : " << i);
+      ROS_INFO_STREAM("max_vel : " << max_speed);
+
       for(int k=1; k<=predict_step; k++)
       {
         // 予測時間を計算
         double dt = dt_ * k;
         ROS_INFO_STREAM("dt : " << dt);
 
+        // 将来時刻における加速度を計算
+        Coordinate predict_a = calc_accel(a, j);
+        ROS_INFO_STREAM("a : " << hypot(predict_a.x, predict_a.y));
+
+        // 将来時刻における速度を計算
+        Coordinate predict_vel = calc_velocity(v, predict_a, max_speed);
+        ROS_INFO_STREAM("v : " << hypot(predict_vel.x, predict_vel.y));
+
         // 移動先の座標を計算
-        Coordinate predict_position = calc_position(obs_data_[i].back(), v, a, j, dt);
+        Coordinate predict_position = calc_position(predict_one_state.x, predict_one_state.y , predict_vel);
         predict_positions.push_back(predict_position);
 
+        // Coordinate predict_position = calc_position(obs_data_[i].back(), v, a, j, dt);
+        // predict_positions.push_back(predict_position);
+
         // 移動後の速度を計算
-        Coordinate predict_vel = calc_velocity(v, a, j, dt);
+        // Coordinate predict_vel = calc_velocity(v, a, j, dt);
         
         // 予測データを格納
-        State predict_one_state;
+        a = predict_a;
+        v = predict_vel;
         predict_one_state.x = predict_position.x;
         predict_one_state.y = predict_position.y;
         predict_one_state.vel = hypot(predict_vel.x, predict_vel.y);

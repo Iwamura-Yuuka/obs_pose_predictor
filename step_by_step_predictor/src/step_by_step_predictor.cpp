@@ -13,19 +13,12 @@ SBSPredictor::SBSPredictor():private_nh_("~")
   private_nh_.param("j_rate", j_rate_, {0.5});
   private_nh_.param("max_vel", max_vel_, {1.5});
   private_nh_.param("inc_tolerance", inc_tolerance_, {0.8});
-//   private_nh_.param("visualize_future_people_poses", visualize_future_people_poses_, {false});
-//   private_nh_.param("flag_prediction", flag_prediction_, {true});
-//   private_nh_.param("robot_frame", robot_frame_, {"odom"});
-//   private_nh_.param("people_frame", people_frame_, {"base_footprint"});
-//   private_nh_.param("consider_dist_border", consider_dist_border_, {8.0});
-//   private_nh_.param("predict_dist_border", predict_dist_border_, {3.0});
-//   private_nh_.param("tmp_robot_x", tmp_robot_x_, {0.0});
-//   private_nh_.param("tmp_robot_y", tmp_robot_y_, {0.0});
 
   // subscriber
   sub_ped_states_ = nh_.subscribe("/pedsim_simulator/simulated_agents", 1, &SBSPredictor::pedestrian_data_callback, this, ros::TransportHints().reliable().tcpNoDelay());
 
   // publisher
+  pub_predicted_states_ = nh_.advertise<std_msgs::Float32MultiArray>("/predicted_state", 1);
 
   // debug
   pub_observed_data_ = nh_.advertise<visualization_msgs::MarkerArray>("/observed_data", 1);
@@ -256,10 +249,11 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
         j.y = 0.0;
       }
 
-      ROS_INFO_STREAM("id : " << i);
-      ROS_INFO_STREAM("v : " << hypot(v.x, v.y));
-      ROS_INFO_STREAM("a : " << hypot(a.x, a.y));
-      ROS_INFO_STREAM("j : " << hypot(j.x, j.y));
+      // デバック用
+    //   ROS_INFO_STREAM("id : " << i);
+    //   ROS_INFO_STREAM("v : " << hypot(v.x, v.y));
+    //   ROS_INFO_STREAM("a : " << hypot(a.x, a.y));
+    //   ROS_INFO_STREAM("j : " << hypot(j.x, j.y));
 
       // 姿勢・速度予測
       std::vector<Coordinate> predict_positions;
@@ -281,21 +275,21 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
         max_speed = hypot(v.x, v.y) + (inc_tolerance_ * (max_vel_ - hypot(v.x,v.y)));
       }
 
-      ROS_INFO_STREAM("max_vel : " << max_speed);
+    //   ROS_INFO_STREAM("max_vel : " << max_speed);  // デバック用
 
       for(int k=1; k<=predict_step; k++)
       {
-        // 予測時間を計算
-        double dt = dt_ * k;
-        ROS_INFO_STREAM("dt : " << dt);
+        // 予測時間を表示（デバック用）
+        // double dt = dt_ * k;
+        // ROS_INFO_STREAM("dt : " << dt);
 
         // 将来時刻における加速度を計算
         Coordinate predict_a = calc_accel(a, j);
-        ROS_INFO_STREAM("a : " << hypot(predict_a.x, predict_a.y));
+        // ROS_INFO_STREAM("a : " << hypot(predict_a.x, predict_a.y));  // デバック用
 
         // 将来時刻における速度を計算
         Coordinate predict_vel = calc_velocity(v, predict_a, max_speed);
-        ROS_INFO_STREAM("v : " << hypot(predict_vel.x, predict_vel.y));
+        // ROS_INFO_STREAM("v : " << hypot(predict_vel.x, predict_vel.y));  // デバック用
 
         // 移動先の座標を計算
         Coordinate predict_position = calc_position(predict_one_state.x, predict_one_state.y , predict_vel);
@@ -315,7 +309,7 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
         predict_one_state.vel = hypot(predict_vel.x, predict_vel.y);
         predict_one_state.yaw = calc_direction(predict_vel);
         predict_one_states.push_back(predict_one_state);
-        ROS_INFO_STREAM("vel : " << predict_one_state.vel);
+        // ROS_INFO_STREAM("vel : " << predict_one_state.vel);  // デバック用
       }
 
       predict_poses.push_back(predict_positions);
@@ -323,16 +317,41 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
     }
 }
 
+// 予測した障害物情報をPublish
+void SBSPredictor::publish_predict_data(const std::vector< std::vector<State> > obs_states)
+{
+  // 配列の行サイズを格納
+  int row = obs_states.size();
+  // 配列の列サイズを格納
+  int column = obs_states[0].size();
+
+  std_msgs::Float32MultiArray predict_data;
+
+  // Publishするデータを格納
+  for(int i=0; i<row; i++)
+  {
+    for(int j=0; j<column; j++)
+    {
+      predict_data.data.push_back(obs_states[i][j].x);
+      predict_data.data.push_back(obs_states[i][j].y);
+      predict_data.data.push_back(obs_states[i][j].vel);
+      predict_data.data.push_back(obs_states[i][j].yaw);
+    }
+  }
+  
+  pub_predicted_states_.publish(predict_data);
+}
+
 // 障害物の位置情報を可視化
 // visualization_msgs::MarkerArrayを使用
-void SBSPredictor::visualize_obs_pose(const std::vector< std::vector<Coordinate> > obs_poses, const ros::Publisher& pub_obs_pose, ros::Time now)
+void SBSPredictor::visualize_obs_pose(const std::vector< std::vector<Coordinate> > obs_poses, ros::Publisher& pub_obs_pose, ros::Time now)
 {
   // 配列の行サイズを格納
   int row = obs_poses.size();
   // 配列の列サイズを格納
   int column = obs_poses[0].size();
 
-  // 配列サイズを表示
+  // 配列サイズを表示（デバック用）
   ROS_INFO_STREAM("row : " << row);
   ROS_INFO_STREAM("column : " << column);
 
@@ -367,14 +386,14 @@ void SBSPredictor::visualize_obs_pose(const std::vector< std::vector<Coordinate>
         obs_pose_color.r = 1.0;
         obs_pose_color.g = 0.0;
         obs_pose_color.b = 0.2;
-        obs_pose_color.a = 0.2 + 0.8 * ((j+1) / column);  // だんだん濃くなる
+        obs_pose_color.a = 0.2 + 0.8 * ((j+1) / (double)column);  // だんだん濃くなる
       }
       else                   // 予測データ
       {
         obs_pose_color.r = 0.0;
         obs_pose_color.g = 0.5;
         obs_pose_color.b = 1.0;
-        obs_pose_color.a = 0.2 + 0.8 * (1 - (j/column));  // だんだん薄くなる
+        obs_pose_color.a = 0.2 + 0.8 * (1 - (j/(double)column));  // だんだん薄くなる
       }
 
       obs_pose_list.colors.push_back(obs_pose_color);
@@ -400,7 +419,10 @@ void SBSPredictor::update_obs_data()
   if(is_store_obs_data_)
   {
     predict_obs_states(predicted_obs_poses, predicted_obs_states);
-    
+
+    // 予測した障害物情報をPublish
+    publish_predict_data(predicted_obs_states);
+
     // 障害物の観測位置を可視化
     if(visualize_observed_obs_poses_)
     {

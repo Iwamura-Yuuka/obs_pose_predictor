@@ -99,12 +99,13 @@ std::vector<Coordinate> SBSPredictor::calc_speed(const std::vector<Coordinate>& 
 {
   std::vector<Coordinate> speeds;
   int size = positions.size();
+  double dt = 1.0 / hz_;
 
   for(int i=1; i<size; i++)
   {
     Coordinate speed;
-    speed.x = (positions[i].x - positions[i-1].x) / dt_;
-    speed.y = (positions[i].y - positions[i-1].y) / dt_;
+    speed.x = (positions[i].x - positions[i-1].x) / dt;
+    speed.y = (positions[i].y - positions[i-1].y) / dt;
     speeds.push_back(speed);
   }
 

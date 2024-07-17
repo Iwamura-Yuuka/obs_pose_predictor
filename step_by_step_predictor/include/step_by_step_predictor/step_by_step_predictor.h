@@ -71,6 +71,7 @@ private:
   double horizon_;                      // 予測ホライズン [s]
   double dt_;                           // 微小時間 [s]
   double j_rate_;                       // ジャークの減速比率
+  double a_rate_;                       // 加速度の減速比率
   double max_vel_;                      // 障害物の最高速度
   double inc_tolerance_;                // 最高速度に対する増加許容範囲
 

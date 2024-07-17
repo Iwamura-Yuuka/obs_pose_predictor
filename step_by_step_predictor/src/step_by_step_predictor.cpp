@@ -10,7 +10,8 @@ SBSPredictor::SBSPredictor():private_nh_("~")
   private_nh_.param("sim_frame", sim_frame_, {"odom"});
   private_nh_.param("horizon", horizon_, {3.0});
   private_nh_.param("dt", dt_, {0.1});
-  private_nh_.param("j_rate", j_rate_, {0.5});
+  private_nh_.param("j_rate", j_rate_, {0.8});
+  private_nh_.param("a_rate", a_rate_, {0.5});
   private_nh_.param("max_vel", max_vel_, {1.5});
   private_nh_.param("inc_tolerance", inc_tolerance_, {0.8});
 
@@ -99,12 +100,13 @@ std::vector<Coordinate> SBSPredictor::calc_speed(const std::vector<Coordinate>& 
 {
   std::vector<Coordinate> speeds;
   int size = positions.size();
+  double dt = 1.0 / hz_;
 
   for(int i=1; i<size; i++)
   {
     Coordinate speed;
-    speed.x = (positions[i].x - positions[i-1].x) / dt_;
-    speed.y = (positions[i].y - positions[i-1].y) / dt_;
+    speed.x = (positions[i].x - positions[i-1].x) / dt;
+    speed.y = (positions[i].y - positions[i-1].y) / dt;
     speeds.push_back(speed);
   }
 
@@ -115,6 +117,7 @@ std::vector<Coordinate> SBSPredictor::calc_speed(const std::vector<Coordinate>& 
 Coordinate SBSPredictor::calc_accel(const Coordinate tmp_a, const Coordinate j)
 {
   Coordinate predict_a;
+
   // 加速し続けないようにジャークを減衰させる
   predict_a.x = tmp_a.x + ((1 - j_rate_) * j.x * dt_);
   predict_a.y = tmp_a.y + ((1 - j_rate_) * j.y * dt_);
@@ -127,8 +130,9 @@ Coordinate SBSPredictor::calc_velocity(const Coordinate tmp_v, const Coordinate 
 {
   Coordinate predict_v;
 
-  predict_v.x = tmp_v.x + (a.x * dt_);
-  predict_v.y = tmp_v.y + (a.y * dt_);
+  // 加速し続けないように加速度を減衰させる
+  predict_v.x = tmp_v.x + ((1 - a_rate_) * a.x * dt_);
+  predict_v.y = tmp_v.y + ((1 - a_rate_) * a.y * dt_);
 
   // 最大速度を超えてしまった場合は調整
   if(hypot(predict_v.x, predict_v.y) > max_speed)
@@ -222,9 +226,9 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
       {
         a_list = calc_speed(v_list);
         // 現在の加速度を取得
-        // a = a_list.back();
-        a.x = a_list.back().x * dt_;
-        a.y = a_list.back().y * dt_;
+        a = a_list.back();
+        // a.x = a_list.back().x * dt_;
+        // a.y = a_list.back().y * dt_;
       }
       else
       {
@@ -239,9 +243,9 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
       {
         j_list = calc_speed(a_list);
         // 現在のジャークを取得
-        // j = j_list.back();
-        j.x = j_list.back().x * dt_;
-        j.y = j_list.back().y * dt_;
+        j = j_list.back();
+        // j.x = j_list.back().x * dt_;
+        // j.y = j_list.back().y * dt_;
       }
       else
       {
@@ -302,6 +306,8 @@ void SBSPredictor::predict_obs_states(std::vector< std::vector<Coordinate> >& pr
         // Coordinate predict_vel = calc_velocity(v, a, j, dt);
         
         // 予測データを格納
+        j.x = (1 - j_rate_) * j.x;
+        j.y = (1 - j_rate_) * j.y;
         a = predict_a;
         v = predict_vel;
         predict_one_state.x = predict_position.x;

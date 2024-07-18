@@ -2,7 +2,7 @@
 <launch>
   <!-- config file path -->
   <arg name="rviz_settings" default="$(find step_by_step_predictor)/config/rviz/debug.rviz"/>
-  <arg name="step_by_step_predictor_settings" default="$(find step_by_step_predictor)/config/param/debug.yaml"/>
+  <arg name="step_by_step_predictor_settings" default="$(find step_by_step_predictor)/config/param/mode2.yaml"/>
 
   <!-- node launch -->
   <node pkg="step_by_step_predictor" type="step_by_step_predictor_node" name="step_by_step_predictor" output="screen">

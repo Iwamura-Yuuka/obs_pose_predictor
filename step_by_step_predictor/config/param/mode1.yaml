@@ -15,7 +15,7 @@ visualize_predicted_obs_poses: true  # 障害物の予測位置
 sim_frame: "odom"  # シミュレーター
 
 # 予測時間 [s]
-horizon: 1.0         # 予測ホライズン [s]
+horizon: 5.0         # 予測ホライズン [s]
 dt: 0.1              # 微小時間 [s]
 j_rate: 0.98         # ジャークの減速比率
 a_rate: 0.98         # 加速度の減速比率
